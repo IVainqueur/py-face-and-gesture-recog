@@ -7,16 +7,22 @@ from sklearn.preprocessing import normalize
 from tensorflow.keras.preprocessing import image
 from tqdm import tqdm
 import shutil
+from concurrent.futures import ThreadPoolExecutor
 
 # Function to extract features using VGG16
-def extract_features(img_path, model):
-    img = image.load_img(img_path, target_size=(224, 224))
-    x = image.img_to_array(img)
-    x = np.expand_dims(x, axis=0)
-    x = kapp.vgg16.preprocess_input(x)
-    features = model.predict(x)
-    features = np.squeeze(features)
+def extract_features(img_paths, model):
+    # Pre-process the images in batches
+    preprocessed_images = [preprocess_image(img_path) for img_path in img_paths]
+    # Predict features in batches
+    features = model.predict(preprocessed_images)
     return features
+
+def preprocess_image(img_path):
+    img = tf.io.read_file(img_path)
+    img = tf.image.decode_jpeg(img, channels=3)
+    img = tf.image.resize(img, [224, 224])
+    img = kapp.vgg16.preprocess_input(img)
+    return img[np.newaxis,...]
 
 # Load VGG16 model
 vgg16_model = kapp.vgg16.VGG16(weights='imagenet', include_top=False, pooling='avg')
@@ -28,13 +34,14 @@ images_folder = "dataset"
 image_files = [os.path.join(images_folder, img) for img in os.listdir(images_folder) if img.endswith('.jpg')]
 
 # Extract features for all images
-all_features = []
-for img_file in tqdm(image_files, desc="Extracting Features"):
-    features = extract_features(img_file, vgg16_model)
-    all_features.append(features)
+with ThreadPoolExecutor(max_workers=8) as executor:
+    all_features = list(tqdm(executor.map(lambda img_file: extract_features([img_file], vgg16_model), image_files), total=len(image_files), desc="Extracting Features"))
+
+# Flatten the list of lists into a single array
+all_features = np.concatenate(all_features)
 
 # Normalize the features
-all_features = normalize(np.array(all_features))
+all_features = normalize(all_features)
 
 # Apply K-means clustering
 num_clusters = 5  # You can adjust this

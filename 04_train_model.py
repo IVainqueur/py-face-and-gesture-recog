@@ -12,6 +12,8 @@ def getImagesAndLabels(path, target_size=(100, 100)):
     for imagePath in imagePaths:
         try:
             image = cv2.imread(imagePath, cv2.IMREAD_GRAYSCALE)  # Read image in grayscale
+            if image is None:
+                raise ValueError(f"Could not read image {imagePath}")
             image = cv2.resize(image, target_size)  # Resize image to target size
             filename = os.path.basename(imagePath)
             customer_id = int(filename.split("_")[0].split(".")[1])  # Extract customer ID
@@ -20,8 +22,10 @@ def getImagesAndLabels(path, target_size=(100, 100)):
                 face = image[y:y + h, x:x + w]
                 faceSamples.append(face)
                 Ids.append(customer_id)
+        except ValueError as ve:
+            print(f"ValueError processing image {imagePath}: {ve}")
         except Exception as e:
-            print(f"Error processing image {imagePath}: {e}")
+            print(f"Exception processing image {imagePath}: {e}")
     return faceSamples, Ids
 
 def train_recognizer(dataset_path):

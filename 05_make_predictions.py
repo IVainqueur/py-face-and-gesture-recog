@@ -2,37 +2,34 @@ import sqlite3
 import cv2
 import numpy as np
 import mediapipe as mp
-
-def get_customer_name(predicted_id):
-    conn = sqlite3.connect('customer_faces_data.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT customer_name FROM customers WHERE customer_uid = ?", (predicted_id,))
-    result = cursor.fetchone()
-    conn.close()
-    if result:
-        return result[0]
-    else:
-        return "Unknown"
-
-def add_ok_sign_column():
-    try:
-        conn = sqlite3.connect('customer_faces_data.db')
-        cursor = conn.cursor()
-        cursor.execute("ALTER TABLE customers ADD COLUMN ok_sign_detected INTEGER DEFAULT 0")
-        conn.commit()
-        print("Column 'ok_sign_detected' added successfully.")
-    except sqlite3.OperationalError as e:
-        print(f"SQLite error: {e}")
-
-def update_ok_sign_detected(predicted_id, ok_sign_detected):
-    conn = sqlite3.connect('customer_faces_data.db')
-    cursor = conn.cursor()
-    cursor.execute("UPDATE customers SET ok_sign_detected = ? WHERE customer_uid = ?", (ok_sign_detected, predicted_id))
-    conn.commit()
-    conn.close()
+from contextlib import closing
 
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
+
+class DatabaseManager:
+    def __init__(self):
+        self.conn = sqlite3.connect('customer_faces_data.db', check_same_thread=False)
+        self.cursor = self.conn.cursor()
+
+    def query(self, sql, params=None):
+        self.cursor.execute(sql, params)
+        return self.cursor
+
+    def get_customer_name(self, predicted_id):
+        cursor = self.query("SELECT customer_name FROM customers WHERE customer_uid =?", (predicted_id,))
+        result = cursor.fetchone()
+        if result:
+            return result[0]
+        else:
+            return "Unknown"
+
+    def add_ok_sign_column(self):
+        self.query("ALTER TABLE customers ADD COLUMN ok_sign_detected INTEGER DEFAULT 0")
+
+    def update_ok_sign_detected(self, predicted_id, ok_sign_detected):
+        self.query("UPDATE customers SET ok_sign_detected =? WHERE customer_uid =?", (ok_sign_detected, predicted_id))
+
 
 def detect_ok_sign(image, hand_landmarks):
     if hand_landmarks:
@@ -57,6 +54,8 @@ def main():
     cam = cv2.VideoCapture(0)
     hands = mp_hands.Hands(min_detection_confidence=0.7, min_tracking_confidence=0.5)
     
+    db_manager = DatabaseManager()
+    
     while True:
         ret, frame = cam.read()
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -68,7 +67,7 @@ def main():
             id_, conf = faceRecognizer.predict(roi_gray)
             
             if conf >= 45:
-                customer_name = get_customer_name(id_)
+                customer_name = db_manager.get_customer_name(id_)
                 label = f"{customer_name} - {round(conf, 2)}%"
             else:
                 label = "Unknown"
@@ -84,8 +83,8 @@ def main():
         if ok_sign_detected:
             cv2.putText(frame, "OK Sign Detected", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3)
             if conf >= 45:
-                update_ok_sign_detected(id_, 0)
-                # break  # Stop the script after updating the database
+                db_manager.update_ok_sign_detected(id_, 0)
+                # break  # Uncomment to stop the script after updating the database
         
         if results.multi_hand_landmarks:
             for hand_landmarks in results.multi_hand_landmarks:
@@ -98,8 +97,9 @@ def main():
     
     cam.release()
     cv2.destroyAllWindows()
- 
+
 if __name__ == '__main__':
     # add when first running it
-    add_ok_sign_column()
+    db_manager = DatabaseManager()
+    # db_manager.add_ok_sign_column()
     main()
